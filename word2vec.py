@@ -8,54 +8,55 @@ class Word2Vec:
         self.vocab_size = vocab_size
         self.embedding_dim = embedding_dim
         
-        # W1: Context embeddings (Input to Hidden layer)
-        # Shape: (vocab_size, embedding_dim)
+        # W1 (vocab_size, embedding_dim): Context embeddings (Input -> Hidden layer)
         self.W1 = np.random.uniform(-0.1, 0.1, (vocab_size, embedding_dim))
         
-        # W2: Output embeddings (Hidden to Output layer)
-        # Shape: (embedding_dim, vocab_size)
+        # W2 (embedding_dim, vocab_size): Output embeddings (Hidden -> Output layer)
         self.W2 = np.random.uniform(-0.1, 0.1, (embedding_dim, vocab_size))
 
-    def forward(self, target_idx):
+    def forward(self, target_idx: int):
         """
         Forward pass to compute softmax probabilities.
+        y_pred = softmax(u) = softmax(one_hot_vector * W1 * W2)
         """
-        # Given a single input word target_idx (which is effectively a one-hot vector with a 1 at target_idx),
-        # its multiplication with W1 just selects the target_idx row of W1.
+        # h = one-hot vector * W1 -> (1, embedding_dim)
         self.h = self.W1[target_idx]
+        assert self.h.shape == (self.embedding_dim,)
         
-        # Compute u = W2^T * h. 
-        # Since W2 is (embedding_dim, vocab_size) and h is (embedding_dim,), their dot product is (vocab_size,)
+        # u = h * W2 -> (1, vocab_size)
         self.u = np.dot(self.h, self.W2)
+        assert self.u.shape == (self.vocab_size,)
         
-        # Apply Softmax activation function
-        # We subtract max(u) for numerical stability (prevent overflow in exp)
+        # y_pred = softmax(u) = np.exp(x) / np.sum(np.exp(x), axis=0)
+        # subtract max(u) for numerical stability, prevent overflow in exp()
         exp_u = np.exp(self.u - np.max(self.u))
         self.y_pred = exp_u / np.sum(exp_u)
+        assert self.y_pred.shape == (self.vocab_size,)
         
         return self.y_pred
 
-    def backward(self, target_idx, context_idx, learning_rate):
+    def backward(self, target_idx: int, context_idx: int, learning_rate: float):
         """
         Backward pass to compute gradients and adjust weights.
         """
-        # 1. Error for the output layer
-        # e = y_pred - y_true
-        # y_true is a one hot encoded vector with 1 at context_idx.
+        # e = dL/du = y_pred - y_true (proof: https://medium.com/data-science/derivative-of-the-softmax-function-and-the-categorical-cross-entropy-loss-ffceefc081d1)
         e = self.y_pred.copy()
         e[context_idx] -= 1.0
-        
-        # 2. Compute gradients
-        # dW1_row is the gradient with respect to the input word's embedding
-        # dW2 is the gradient with respect to the output matrix
-        
-        # dW2 = outer product of h (hidden state) and e (error)
+        assert e.shape == (self.vocab_size,)
+
+        # du/dW2 = h^T (Since u = h * W2)
+        # Gradient of W2: dL/dW2 = dL/du * du/dW2 = e * h^T
         dW2 = np.outer(self.h, e)
+        assert dW2.shape == (self.embedding_dim, self.vocab_size)
         
-        # dW1_row = dot product of W2 and e
+        # du/dh = W2^T (Since u = h * W2)
+        # dh/dW1 = one_hot_vector^T (Since h = one_hot_vector * W1)
+        # dL/dW1 = dL/du * du/dh * dh/dW1 = e * W2^T * one_hot_vector^T
+        # Gradient of W1: dL/dW1 = (one_hot_vector * (W2 * e^T))^T
         dW1_row = np.dot(self.W2, e)
+        assert dW1_row.shape == (self.embedding_dim,)
         
-        # 3. Update weights (Gradient Descent)
+        # Update weights (Gradient Descent)
         self.W2 -= learning_rate * dW2
         self.W1[target_idx] -= learning_rate * dW1_row
 
