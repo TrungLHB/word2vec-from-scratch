@@ -71,6 +71,7 @@ class DataLoader:
         word_indices = [self.word_to_index[w] for w in self.words if w in self.word_to_index]
         
         # Iterate through each word in the corpus with a sliding window
+        # TODO: Improve this by sampling negative examples
         for i, target_idx in enumerate(word_indices):
             start = max(0, i - window_size)
             end = min(len(word_indices), i + window_size + 1)
