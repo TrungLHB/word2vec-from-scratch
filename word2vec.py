@@ -14,69 +14,68 @@ class Word2Vec:
         # W2 (embedding_dim, vocab_size): Output embeddings (Hidden -> Output layer)
         self.W2 = np.random.uniform(-0.1, 0.1, (embedding_dim, vocab_size))
 
-    def forward(self, target_idx: int):
-        """
-        Forward pass to compute softmax probabilities.
-        y_pred = softmax(u) = softmax(one_hot_vector * W1 * W2)
-        """
-        # h = one-hot vector * W1 -> (1, embedding_dim)
-        self.h = self.W1[target_idx]
-        assert self.h.shape == (self.embedding_dim,)
-        
-        # u = h * W2 -> (1, vocab_size)
-        self.u = np.dot(self.h, self.W2)
-        assert self.u.shape == (self.vocab_size,)
-        
-        # y_pred = softmax(u) = np.exp(x) / np.sum(np.exp(x), axis=0)
-        # subtract max(u) for numerical stability, prevent overflow in exp()
-        exp_u = np.exp(self.u - np.max(self.u))
-        self.y_pred = exp_u / np.sum(exp_u)
-        assert self.y_pred.shape == (self.vocab_size,)
-        
-        return self.y_pred
+    def sigmoid(self, x):
+        # Clip x to prevent overflow in exp
+        x = np.clip(x, -500, 500)
+        return 1.0 / (1.0 + np.exp(-x))
 
-    def backward(self, target_idx: int, context_idx: int, learning_rate: float):
+    def train_step(self, target_idx: int, context_idx: int, label: int, learning_rate: float):
         """
-        Backward pass to compute gradients and adjust weights.
+        Computes forward and backward pass for a single target-context pair using Binary Cross Entropy.
+        Label: 1 for positive sample, 0 for negative sample.
+        Model:
+            u * W1 -> h_u
+            h_v * W2 -> v
+            y = sigmoid(h_u * h_v)
+        Loss:
+            L = -[y * log(y_pred) + (1 - y) * log(1 - y_pred)]
         """
-        # e = dL/du = y_pred - y_true (proof: https://medium.com/data-science/derivative-of-the-softmax-function-and-the-categorical-cross-entropy-loss-ffceefc081d1)
-        e = self.y_pred.copy()
-        e[context_idx] -= 1.0
-        assert e.shape == (self.vocab_size,)
 
-        # du/dW2 = h^T (Since u = h * W2)
-        # Gradient of W2: dL/dW2 = dL/du * du/dW2 = e * h^T
-        dW2 = np.outer(self.h, e)
-        assert dW2.shape == (self.embedding_dim, self.vocab_size)
-        
-        # du/dh = W2^T (Since u = h * W2)
-        # dh/dW1 = one_hot_vector^T (Since h = one_hot_vector * W1)
-        # dL/dW1 = dL/du * du/dh * dh/dW1 = e * W2^T * one_hot_vector^T
-        # Gradient of W1: dL/dW1 = (one_hot_vector * (W2 * e^T))^T
-        dW1_row = np.dot(self.W2, e)
-        assert dW1_row.shape == (self.embedding_dim,)
-        
-        # Update weights (Gradient Descent)
-        self.W2 -= learning_rate * dW2
-        self.W1[target_idx] -= learning_rate * dW1_row
+        # --- Forward Pass ---
 
-        # Calculate loss (Cross-Entropy Loss)
-        # Loss = -log(y_pred[context_idx])
-        loss = -np.log(self.y_pred[context_idx] + 1e-10) # 1e-10 added for numerical stability
+        # h_u = u * W1 (u = one-hot vector of target_idx)
+        h_u = self.W1[target_idx].reshape(-1, 1) # (embedding_dim, 1)
+
+        # h_v = v * W2^T (v = one-hot vector of context_idx)
+        h_v = self.W2[:, context_idx].reshape(-1, 1) # (embedding_dim, 1)
+        
+        # z = h_u^T * h_v
+        z = np.dot(h_u.T, h_v) # (1, 1)
+        pred = self.sigmoid(z).item() # scalar
+        
+        # --- Backward Pass ---
+
+        # dL/dz = dL/da * da/dz = (a-y)/a(1-a) * a(1-a) = a-y
+        dz = pred - label # scalar
+        
+        # dL/dh_v = dL/dz * dz/dh_v = dz * h_u
+        dh_v = dz * h_u # (embedding_dim, 1)
+        
+        # dL/dh_u = dL/dz * dz/dh_u = dz * h_v
+        dh_u = dz * h_v  # (embedding_dim, 1)
+        
+        # --- Update weights ---
+
+        # W2[:, context_idx] = h_v => update W2 column with gradient dh_v
+        self.W2[:, context_idx] -= learning_rate * dh_v.reshape(-1)
+        
+        # W1[target_idx, :] = h_u => update W1 row with gradient dh_u
+        self.W1[target_idx, :] -= learning_rate * dh_u.reshape(-1)
+        
+        # --- Compute loss ---
+        loss = -(label * np.log(pred + 1e-10) + (1 - label) * np.log(1 - pred + 1e-10))
         return loss
 
     def train(self, training_data, epochs=50, learning_rate=0.01):
         """
-        Trains the Word2Vec model using stochastic gradient descent.
+        Trains the Word2Vec model using stochastic gradient descent over binary labeled data.
         """
         for epoch in range(epochs):
             total_loss = 0
-            # Shuffle training data at the start of each epoch
             np.random.shuffle(training_data)
             
-            for target_idx, context_idx in training_data:
-                self.forward(target_idx)
-                loss = self.backward(target_idx, context_idx, learning_rate)
+            for target_idx, context_idx, label in training_data:
+                loss = self.train_step(target_idx, context_idx, label, learning_rate)
                 total_loss += loss
             
             avg_loss = total_loss / len(training_data)

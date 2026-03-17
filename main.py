@@ -5,13 +5,14 @@ HYPE_PARAMETERS = {
     # corpus & vocab parameters
     "min_count": 3,
     "window_size": 2,
-    
+    "num_ns": 5, # Number of negative samples
+
     # model parameters
     "embedding_dim": 10,
 
     # training parameters
-    "epochs": 10,
-    "learning_rate": 0.05
+    "epochs": 50,
+    "learning_rate": 0.01
 }
 
 def main():
@@ -20,7 +21,8 @@ def main():
     # Initialize DataLoader which automatically runs the pipeline
     loader = DataLoader(
         min_count=HYPE_PARAMETERS["min_count"], 
-        window_size=HYPE_PARAMETERS["window_size"]
+        window_size=HYPE_PARAMETERS["window_size"],
+        num_ns=HYPE_PARAMETERS["num_ns"]
     )
     
     print(f"Total words in corpus: {len(loader.words)}")
